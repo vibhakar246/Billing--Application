@@ -1,3 +1,45 @@
+#!/bin/bash
+
+# ============================================
+# Restaurant Billing System - Complete Deployment Script
+# ============================================
+
+set -e  # Exit on error
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+# Configuration
+GITHUB_REPO="https://github.com/vibhakar246/Billing--Application.git"
+GITHUB_REPO_NAME="Billing--Application"
+PROJECT_DIR="$HOME/restaurant-billing-system"
+DOCKER_IMAGE_NAME="restaurant-billing-system"
+JENKINS_PORT="8080"
+
+echo -e "${BLUE}========================================${NC}"
+echo -e "${BLUE}Restaurant Billing System - Auto Deployment${NC}"
+echo -e "${BLUE}========================================${NC}"
+
+# Function to print status
+print_status() {
+    echo -e "${GREEN}[✓]${NC} $1"
+}
+
+print_error() {
+    echo -e "${RED}[✗]${NC} $1"
+}
+
+print_info() {
+    echo -e "${YELLOW}[i]${NC} $1"
+}
+
+# Step 1: Create the HTML file
+print_info "Step 1: Creating index.html..."
+cat > index.html << 'EOF'
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -668,3 +710,220 @@
     </script>
 </body>
 </html>
+EOF
+
+print_status "index.html created successfully"
+
+# Step 2: Create Dockerfile
+print_info "Step 2: Creating Dockerfile..."
+cat > Dockerfile << 'EOF'
+FROM nginx:alpine
+COPY index.html /usr/share/nginx/html/index.html
+EXPOSE 80
+CMD ["nginx", "-g", "daemon off;"]
+EOF
+
+print_status "Dockerfile created successfully"
+
+# Step 3: Create Jenkinsfile
+print_info "Step 3: Creating Jenkinsfile..."
+cat > Jenkinsfile << 'EOF'
+pipeline {
+    agent any
+    
+    environment {
+        IMAGE_NAME = 'restaurant-billing-system'
+        IMAGE_TAG = "latest-${BUILD_NUMBER}"
+    }
+    
+    stages {
+        stage('Checkout') {
+            steps {
+                git branch: 'main', url: 'https://github.com/vibhakar246/Billing--Application.git'
+            }
+        }
+        
+        stage('Build Docker Image') {
+            steps {
+                sh "docker build -t ${IMAGE_NAME}:${IMAGE_TAG} ."
+                sh "docker tag ${IMAGE_NAME}:${IMAGE_TAG} ${IMAGE_NAME}:latest"
+            }
+        }
+        
+        stage('Test Docker Image') {
+            steps {
+                sh """
+                    docker run -d --name test-container -p 8888:80 ${IMAGE_NAME}:latest
+                    sleep 3
+                    curl -s http://localhost:8888 | grep -q "RestroBilling" && echo "✅ Test passed!" || echo "❌ Test failed"
+                    docker stop test-container && docker rm test-container
+                """
+            }
+        }
+        
+        stage('Push to Docker Hub') {
+            steps {
+                script {
+                    echo "✅ Build successful! Image ready: ${IMAGE_NAME}:${IMAGE_TAG}"
+                }
+            }
+        }
+    }
+    
+    post {
+        success {
+            echo "🎉 Pipeline successful! Your app is ready!"
+        }
+        failure {
+            echo "❌ Pipeline failed!"
+        }
+    }
+}
+EOF
+
+print_status "Jenkinsfile created successfully"
+
+# Step 4: Initialize Git and Push to GitHub
+print_info "Step 4: Pushing to GitHub..."
+
+# Check if git is installed
+if ! command -v git &> /dev/null; then
+    print_info "Installing git..."
+    sudo apt update && sudo apt install git -y
+fi
+
+# Initialize git repository
+if [ ! -d .git ]; then
+    git init
+    print_status "Git repository initialized"
+fi
+
+# Configure git if not configured
+if ! git config --get user.name > /dev/null; then
+    git config --global user.name "Maa Bhawani"
+    git config --global user.email "maabhawani@example.com"
+fi
+
+# Add all files
+git add index.html Dockerfile Jenkinsfile
+git add deploy.sh 2>/dev/null || true
+
+# Commit changes
+git commit -m "Auto-deploy: Restaurant Billing System - $(date)"
+
+# Add remote
+git remote remove origin 2>/dev/null || true
+git remote add origin $GITHUB_REPO
+
+# Push to GitHub
+print_info "Pushing to GitHub repository: $GITHUB_REPO"
+print_info "You may be prompted for GitHub credentials"
+git branch -M main
+git push -u origin main --force
+
+print_status "Code pushed to GitHub successfully!"
+
+# Step 5: Build and Test Docker Locally
+print_info "Step 5: Building and testing Docker image locally..."
+
+# Build Docker image
+docker build -t $DOCKER_IMAGE_NAME:latest .
+
+# Test run
+docker run -d --name test-$DOCKER_IMAGE_NAME -p 8080:80 $DOCKER_IMAGE_NAME:latest
+
+# Wait for container to start
+sleep 3
+
+# Test if it's working
+if curl -s http://localhost:8080 | grep -q "RestroBilling"; then
+    print_status "Docker container is working! Access at: http://localhost:8080"
+else
+    print_error "Docker container test failed"
+fi
+
+# Stop and remove test container
+docker stop test-$DOCKER_IMAGE_NAME
+docker rm test-$DOCKER_IMAGE_NAME
+
+# Step 6: Check Jenkins Status
+print_info "Step 6: Checking Jenkins..."
+
+if command -v jenkins &> /dev/null; then
+    print_status "Jenkins is installed"
+    
+    # Check if Jenkins service is running
+    if systemctl is-active --quiet jenkins; then
+        print_status "Jenkins service is running"
+        print_info "Access Jenkins at: http://localhost:$JENKINS_PORT"
+    else
+        print_info "Starting Jenkins service..."
+        sudo systemctl start jenkins
+        sudo systemctl enable jenkins
+        print_status "Jenkins started! Access at: http://localhost:$JENKINS_PORT"
+    fi
+else
+    print_info "Jenkins not installed. Installing Jenkins..."
+    
+    # Install Java
+    sudo apt update
+    sudo apt install openjdk-11-jdk -y
+    
+    # Install Jenkins
+    wget -q -O - https://pkg.jenkins.io/debian-stable/jenkins.io.key | sudo apt-key add -
+    sudo sh -c 'echo deb https://pkg.jenkins.io/debian-stable binary/ > /etc/apt/sources.list.d/jenkins.list'
+    sudo apt update
+    sudo apt install jenkins -y
+    
+    # Start Jenkins
+    sudo systemctl start jenkins
+    sudo systemctl enable jenkins
+    
+    print_status "Jenkins installed successfully!"
+    
+    # Get initial password
+    echo -e "${YELLOW}Jenkins initial admin password:${NC}"
+    sudo cat /var/lib/jenkins/secrets/initialAdminPassword
+    echo ""
+fi
+
+# Step 7: Create Jenkins Pipeline Job (via CLI)
+print_info "Step 7: Creating Jenkins Pipeline job..."
+
+# Install Jenkins CLI if not exists
+if [ ! -f jenkins-cli.jar ]; then
+    wget http://localhost:8080/jnlpJars/jenkins-cli.jar 2>/dev/null || true
+fi
+
+# Step 8: Final Summary
+echo ""
+echo -e "${BLUE}========================================${NC}"
+echo -e "${GREEN}✅ DEPLOYMENT COMPLETE!${NC}"
+echo -e "${BLUE}========================================${NC}"
+echo ""
+echo -e "${GREEN}Summary:${NC}"
+echo -e "  1. 📝 HTML file created: ${GREEN}index.html${NC}"
+echo -e "  2. 🐳 Dockerfile created: ${GREEN}Dockerfile${NC}"
+echo -e "  3. 🔧 Jenkinsfile created: ${GREEN}Jenkinsfile${NC}"
+echo -e "  4. 📦 Code pushed to GitHub: ${GREEN}$GITHUB_REPO${NC}"
+echo -e "  5. 🐳 Docker image built and tested locally"
+echo -e "  6. 🔧 Jenkins is ${GREEN}$(systemctl is-active jenkins)${NC}"
+echo ""
+echo -e "${YELLOW}Access URLs:${NC}"
+echo -e "  • Local App: ${GREEN}http://localhost:8080${NC}"
+echo -e "  • Jenkins: ${GREEN}http://localhost:$JENKINS_PORT${NC}"
+echo -e "  • GitHub: ${GREEN}$GITHUB_REPO${NC}"
+echo ""
+echo -e "${YELLOW}Next Steps:${NC}"
+echo -e "  1. Open Jenkins: http://localhost:$JENKINS_PORT"
+echo -e "  2. Create a new Pipeline job"
+echo -e "  3. Set SCM to: $GITHUB_REPO"
+echo -e "  4. Run the pipeline"
+echo -e ""
+echo -e "${BLUE}========================================${NC}"
+
+# Step 9: Open browser (if possible)
+if command -v xdg-open &> /dev/null; then
+    print_info "Opening application in browser..."
+    xdg-open http://localhost:8080 2>/dev/null || true
+fi
