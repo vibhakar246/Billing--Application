@@ -2,7 +2,7 @@
 
 # ============================================
 # Restaurant Billing System - Auto Deployment Script
-# Uses SSH ONLY - No username/password
+# Handles existing repositories and conflicts
 # ============================================
 
 set -e  # Exit on error
@@ -14,22 +14,15 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-# Configuration - Use SSH URL only!
+# Configuration
 GITHUB_SSH_REPO="git@github.com:vibhakar246/Billing--Application.git"
-PROJECT_NAME="restaurant-billing-system"
 DOCKER_IMAGE_NAME="restaurant-billing-system"
-JENKINS_PORT=8080
 LOCAL_TEST_PORT=8081
 
 echo -e "${BLUE}========================================${NC}"
 echo -e "${BLUE}Restaurant Billing System - Auto Deployment${NC}"
 echo -e "${BLUE}Using SSH (No Password Required)${NC}"
 echo -e "${BLUE}========================================${NC}"
-
-# Function to check if command exists
-command_exists() {
-    command -v "$1" >/dev/null 2>&1
-}
 
 # Step 1: Check project files
 echo -e "\n${YELLOW}[Step 1] Checking project files...${NC}"
@@ -39,7 +32,7 @@ if [[ ! -f "index.html" ]]; then
 fi
 echo -e "${GREEN}✓ index.html found${NC}"
 
-# Step 2: Check/create Dockerfile
+# Step 2: Create Dockerfile if not exists
 echo -e "\n${YELLOW}[Step 2] Creating Dockerfile...${NC}"
 if [[ ! -f "Dockerfile" ]]; then
     cat > Dockerfile << 'EOF'
@@ -53,7 +46,7 @@ else
     echo -e "${GREEN}✓ Dockerfile already exists${NC}"
 fi
 
-# Step 3: Check/create Jenkinsfile
+# Step 3: Create Jenkinsfile if not exists
 echo -e "\n${YELLOW}[Step 3] Creating Jenkinsfile...${NC}"
 if [[ ! -f "Jenkinsfile" ]]; then
     cat > Jenkinsfile << 'EOF'
@@ -107,13 +100,13 @@ else
     echo -e "${GREEN}✓ Jenkinsfile already exists${NC}"
 fi
 
-# Step 4: Check if SSH key exists
+# Step 4: Check SSH key
 echo -e "\n${YELLOW}[Step 4] Checking SSH key...${NC}"
 if [[ -f ~/.ssh/id_rsa ]]; then
-    echo -e "${GREEN}✓ SSH key already exists${NC}"
+    echo -e "${GREEN}✓ SSH key exists${NC}"
 else
-    echo -e "${YELLOW}No SSH key found. Please generate one first:${NC}"
-    echo "  ssh-keygen -t rsa -b 4096 -C 'your-email@example.com'"
+    echo -e "${RED}No SSH key found. Please generate one:${NC}"
+    echo "  ssh-keygen -t rsa -b 4096 -C 'vibhakar246@gmail.com'"
     exit 1
 fi
 
@@ -122,115 +115,133 @@ echo -e "\n${YELLOW}[Step 5] Testing GitHub SSH connection...${NC}"
 if ssh -T git@github.com 2>&1 | grep -q "successfully authenticated"; then
     echo -e "${GREEN}✓ GitHub SSH connection verified${NC}"
 else
-    echo -e "${YELLOW}⚠ SSH key not added to GitHub yet. Please add this public key:${NC}"
+    echo -e "${YELLOW}⚠ SSH key not added to GitHub. Add this public key:${NC}"
     cat ~/.ssh/id_rsa.pub
-    echo -e "\n${YELLOW}Add this to: https://github.com/settings/keys${NC}"
-    echo -e "${YELLOW}Then press Enter to continue...${NC}"
-    read
-    echo -e "${GREEN}✓ Continuing after SSH key addition${NC}"
-fi
-
-# Step 6: Remove HTTPS remote if exists, add SSH remote
-echo -e "\n${YELLOW}[Step 6] Setting up Git remote with SSH...${NC}"
-if [[ -d ".git" ]]; then
-    # Remove any existing HTTPS remotes
-    git remote remove origin 2>/dev/null || true
-    # Add SSH remote
-    git remote add origin ${GITHUB_SSH_REPO}
-    echo -e "${GREEN}✓ Git remote set to: ${GITHUB_SSH_REPO}${NC}"
-else
-    git init
-    git remote add origin ${GITHUB_SSH_REPO}
-    echo -e "${GREEN}✓ Git initialized with SSH remote${NC}"
-fi
-
-# Step 7: Add and commit files
-echo -e "\n${YELLOW}[Step 7] Adding files to Git...${NC}"
-git add index.html Dockerfile Jenkinsfile 2>/dev/null || true
-git add . 2>/dev/null || true
-
-if ! git diff --cached --quiet; then
-    git commit -m "Auto-deploy: Restaurant Billing System $(date '+%Y-%m-%d %H:%M:%S')"
-    echo -e "${GREEN}✓ Changes committed${NC}"
-else
-    echo -e "${GREEN}✓ No new changes to commit${NC}"
-fi
-
-# Step 8: Push to GitHub using SSH
-echo -e "\n${YELLOW}[Step 8] Pushing to GitHub via SSH...${NC}"
-git push -u origin main 2>&1 || git push -u origin master 2>&1
-
-if [ $? -eq 0 ]; then
-    echo -e "${GREEN}✓ Code pushed to GitHub successfully using SSH!${NC}"
-else
-    echo -e "${RED}Failed to push. Please check SSH connection:${NC}"
-    echo "  ssh -T git@github.com"
+    echo -e "\n${YELLOW}Add to: https://github.com/settings/keys${NC}"
     exit 1
 fi
 
-# Step 9: Test Docker build locally
-echo -e "\n${YELLOW}[Step 9] Testing Docker build locally...${NC}"
-docker build -t ${DOCKER_IMAGE_NAME}:test . 2>&1 | tail -5
-echo -e "${GREEN}✓ Docker image built successfully${NC}"
+# Step 6: Setup Git repository
+echo -e "\n${YELLOW}[Step 6] Setting up Git repository...${NC}"
 
-# Step 10: Run local test
-echo -e "\n${YELLOW}[Step 10] Running local test...${NC}"
-docker run -d --name test-app -p ${LOCAL_TEST_PORT}:80 ${DOCKER_IMAGE_NAME}:test >/dev/null 2>&1
-sleep 2
+# Initialize git if not already
+if [[ ! -d ".git" ]]; then
+    git init
+    echo -e "${GREEN}✓ Git initialized${NC}"
+fi
+
+# Remove existing remote if any
+git remote remove origin 2>/dev/null || true
+
+# Add SSH remote
+git remote add origin ${GITHUB_SSH_REPO}
+echo -e "${GREEN}✓ Remote added: ${GITHUB_SSH_REPO}${NC}"
+
+# Step 7: Handle existing remote content
+echo -e "\n${YELLOW}[Step 7] Syncing with remote repository...${NC}"
+
+# Fetch remote changes
+git fetch origin 2>/dev/null || echo "No existing remote content"
+
+# Check if remote has content
+if git ls-remote --heads origin main | grep -q main; then
+    echo -e "${YELLOW}Remote repository already has content. Merging...${NC}"
+    
+    # Create a backup of our files
+    cp index.html index.html.backup
+    cp Dockerfile Dockerfile.backup 2>/dev/null || true
+    cp Jenkinsfile Jenkinsfile.backup 2>/dev/null || true
+    
+    # Pull remote changes
+    git pull origin main --allow-unrelated-histories --no-rebase || true
+    
+    # Restore our files if they were overwritten
+    cp index.html.backup index.html
+    cp Dockerfile.backup Dockerfile 2>/dev/null || true
+    cp Jenkinsfile.backup Jenkinsfile 2>/dev/null || true
+    
+    # Add our files
+    git add index.html Dockerfile Jenkinsfile 2>/dev/null || true
+    
+    # Commit our changes
+    git commit -m "Update: Restaurant Billing System $(date '+%Y-%m-%d %H:%M:%S')" || true
+    
+    echo -e "${GREEN}✓ Merged remote changes${NC}"
+else
+    echo -e "${GREEN}✓ Remote repository is empty, ready to push${NC}"
+fi
+
+# Step 8: Add and commit our files
+echo -e "\n${YELLOW}[Step 8] Adding files to Git...${NC}"
+git add index.html Dockerfile Jenkinsfile 2>/dev/null || true
+git add . 2>/dev/null || true
+
+# Check if there are changes to commit
+if git diff --cached --quiet; then
+    echo -e "${GREEN}✓ No new changes to commit${NC}"
+else
+    git commit -m "Auto-deploy: Restaurant Billing System $(date '+%Y-%m-%d %H:%M:%S')"
+    echo -e "${GREEN}✓ Changes committed${NC}"
+fi
+
+# Step 9: Push to GitHub
+echo -e "\n${YELLOW}[Step 9] Pushing to GitHub via SSH...${NC}"
+git push -u origin main 2>&1 || git push -u origin HEAD:main 2>&1
+
+if [ $? -eq 0 ]; then
+    echo -e "${GREEN}✓ Code pushed to GitHub successfully!${NC}"
+else
+    echo -e "${RED}Failed to push. Trying force push...${NC}"
+    git push -u origin main --force
+    echo -e "${GREEN}✓ Force push completed!${NC}"
+fi
+
+# Step 10: Test Docker build
+echo -e "\n${YELLOW}[Step 10] Testing Docker build...${NC}"
+docker build -t ${DOCKER_IMAGE_NAME}:test . > /dev/null 2>&1
+echo -e "${GREEN}✓ Docker image built: ${DOCKER_IMAGE_NAME}:test${NC}"
+
+# Step 11: Run local test
+echo -e "\n${YELLOW}[Step 11] Running local test...${NC}"
+docker stop test-app 2>/dev/null || true
+docker rm test-app 2>/dev/null || true
+
+docker run -d --name test-app -p ${LOCAL_TEST_PORT}:80 ${DOCKER_IMAGE_NAME}:test > /dev/null 2>&1
+sleep 3
+
 if curl -s http://localhost:${LOCAL_TEST_PORT} | grep -q "RestroBilling"; then
-    echo -e "${GREEN}✓ Application is working!${NC}"
+    echo -e "${GREEN}✓ Application is working at: http://localhost:${LOCAL_TEST_PORT}${NC}"
 else
     echo -e "${RED}⚠ Application test failed${NC}"
 fi
-docker stop test-app >/dev/null 2>&1
-docker rm test-app >/dev/null 2>&1
 
-# Step 11: Check Jenkins status
-echo -e "\n${YELLOW}[Step 11] Checking Jenkins...${NC}"
-if systemctl status jenkins 2>/dev/null | grep -q "active"; then
-    echo -e "${GREEN}✓ Jenkins is running at http://localhost:${JENKINS_PORT}${NC}"
+# Clean up
+docker stop test-app > /dev/null 2>&1 || true
+docker rm test-app > /dev/null 2>&1 || true
+
+# Step 12: Check Jenkins
+echo -e "\n${YELLOW}[Step 12] Checking Jenkins...${NC}"
+if command -v jenkins > /dev/null 2>&1 || systemctl status jenkins 2>/dev/null | grep -q "active"; then
+    echo -e "${GREEN}✓ Jenkins is installed${NC}"
+    echo -e "${GREEN}  Jenkins URL: http://localhost:8080${NC}"
 else
-    echo -e "${YELLOW}Jenkins not running. Installing...${NC}"
-    sudo apt update
-    sudo apt install openjdk-11-jdk -y
-    wget -q -O - https://pkg.jenkins.io/debian-stable/jenkins.io.key | sudo apt-key add -
-    sudo sh -c 'echo deb https://pkg.jenkins.io/debian-stable binary/ > /etc/apt/sources.list.d/jenkins.list'
-    sudo apt update
-    sudo apt install jenkins -y
-    sudo systemctl start jenkins
-    sudo systemctl enable jenkins
-    echo -e "${GREEN}✓ Jenkins installed${NC}"
-    echo -e "${YELLOW}Initial password:${NC}"
-    sudo cat /var/lib/jenkins/secrets/initialAdminPassword 2>/dev/null || echo "Check /var/lib/jenkins/secrets/initialAdminPassword"
+    echo -e "${YELLOW}Jenkins not installed. Install with:${NC}"
+    echo "  sudo apt update && sudo apt install jenkins -y"
 fi
-
-# Step 12: Show GitHub URL
-echo -e "\n${YELLOW}[Step 12] GitHub Repository Info...${NC}"
-echo -e "${GREEN}Repository URL (SSH): ${GITHUB_SSH_REPO}${NC}"
-echo -e "${GREEN}Repository URL (HTTPS): https://github.com/vibhakar246/Billing--Application.git${NC}"
 
 # Final Summary
 echo -e "\n${BLUE}========================================${NC}"
 echo -e "${GREEN}✅ DEPLOYMENT COMPLETED SUCCESSFULLY!${NC}"
 echo -e "${BLUE}========================================${NC}"
-echo -e "${GREEN}Summary:${NC}"
-echo -e "  ✓ GitHub Repository: ${GITHUB_SSH_REPO}"
-echo -e "  ✓ Docker Image: ${DOCKER_IMAGE_NAME}:test"
-echo -e "  ✓ Local Test URL: http://localhost:${LOCAL_TEST_PORT}"
-echo -e "  ✓ Jenkins URL: http://localhost:${JENKINS_PORT}"
-echo -e "  ✓ Project Location: $(pwd)"
+echo -e "${GREEN}Your Restaurant Billing System is now:${NC}"
+echo -e "  📦 GitHub: ${GITHUB_SSH_REPO}"
+echo -e "  🐳 Docker Image: ${DOCKER_IMAGE_NAME}:test"
+echo -e "  🌐 Local Test: http://localhost:${LOCAL_TEST_PORT}"
 echo -e "\n${YELLOW}Quick Commands:${NC}"
-echo -e "  # View your app locally:"
-echo -e "  docker run -d -p 8080:80 ${DOCKER_IMAGE_NAME}:test && firefox http://localhost:8080"
-echo -e "\n  # Check GitHub repository:"
+echo -e "  # Run your app:"
+echo -e "  docker run -d -p 8080:80 ${DOCKER_IMAGE_NAME}:test"
+echo -e "  # View GitHub repo:"
 echo -e "  git remote -v"
-echo -e "\n  # Test SSH connection:"
+echo -e "  # Check SSH connection:"
 echo -e "  ssh -T git@github.com"
-echo -e "\n${YELLOW}To set up Jenkins Pipeline:${NC}"
-echo -e "  1. Open http://localhost:${JENKINS_PORT}"
-echo -e "  2. Create new Pipeline job"
-echo -e "  3. SCM: Git, URL: ${GITHUB_SSH_REPO}"
-echo -e "  4. Branch: */main"
-echo -e "  5. Script Path: Jenkinsfile"
-echo -e "\n${GREEN}Your app is now live locally and on GitHub! 🚀${NC}"
-echo -e "${BLUE}========================================${NC}"
+echo -e "\n${BLUE}========================================${NC}"
