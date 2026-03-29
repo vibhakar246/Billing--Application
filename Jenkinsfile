@@ -3,6 +3,8 @@ pipeline {
 
     environment {
         IMAGE_NAME = 'restaurant-billing-system'
+        ECR_REPO = '343770680577.dkr.ecr.ap-south-1.amazonaws.com/restaurant-billing-system'
+        AWS_REGION = 'ap-south-1'
         CONTAINER_NAME = 'restaurant-app'
         PORT = '8081'
     }
@@ -13,7 +15,6 @@ pipeline {
             steps {
                 echo '📦 Checking out code from GitHub...'
                 checkout scm
-                echo '✅ Code checked out successfully'
             }
         }
 
@@ -21,12 +22,8 @@ pipeline {
             steps {
                 echo '🔍 Verifying files...'
                 sh '''
-                    echo "Files in workspace:"
                     ls -la
-
-                    if [ -f "index.html" ]; then
-                        echo "✅ index.html found"
-                    else
+                    if [ ! -f "index.html" ]; then
                         echo "❌ index.html not found!"
                         exit 1
                     fi
@@ -38,9 +35,8 @@ pipeline {
             steps {
                 echo '🐳 Building Docker image...'
                 sh '''
-                    docker build -t restaurant-billing-system:latest .
+                    docker build -t $IMAGE_NAME:latest .
                 '''
-                echo '✅ Docker image built successfully'
             }
         }
 
@@ -51,14 +47,12 @@ pipeline {
                     docker stop test-container 2>/dev/null || true
                     docker rm test-container 2>/dev/null || true
 
-                    docker run -d --name test-container -p 8888:80 restaurant-billing-system:latest
+                    docker run -d --name test-container -p 8888:80 $IMAGE_NAME:latest
                     sleep 5
 
                     RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8888)
 
-                    if [ "$RESPONSE" = "200" ]; then
-                        echo "✅ Test passed!"
-                    else
+                    if [ "$RESPONSE" != "200" ]; then
                         echo "❌ Test failed"
                         docker logs test-container
                         exit 1
@@ -70,14 +64,38 @@ pipeline {
             }
         }
 
-        stage('Deploy') {
+        stage('Login to ECR') {
             steps {
-                echo '🚀 Deploying application...'
+                echo '🔐 Logging into ECR...'
                 sh '''
-                    docker stop restaurant-app 2>/dev/null || true
-                    docker rm restaurant-app 2>/dev/null || true
+                    aws ecr get-login-password --region $AWS_REGION | \
+                    docker login --username AWS --password-stdin 343770680577.dkr.ecr.ap-south-1.amazonaws.com
+                '''
+            }
+        }
 
-                    docker run -d --name restaurant-app -p 8081:80 restaurant-billing-system:latest
+        stage('Push to ECR') {
+            steps {
+                echo '📦 Pushing image to ECR...'
+                sh '''
+                    docker tag $IMAGE_NAME:latest $ECR_REPO:latest
+                    docker push $ECR_REPO:latest
+                '''
+            }
+        }
+
+        stage('Deploy from ECR') {
+            steps {
+                echo '🚀 Deploying from ECR...'
+                sh '''
+                    docker stop $CONTAINER_NAME || true
+                    docker rm $CONTAINER_NAME || true
+
+                    docker pull $ECR_REPO:latest
+
+                    docker run -d -p $PORT:80 \
+                    --name $CONTAINER_NAME \
+                    $ECR_REPO:latest
                 '''
             }
         }
@@ -86,15 +104,15 @@ pipeline {
             steps {
                 echo '🔍 Verifying deployment...'
                 sh '''
-                    sleep 3
-                    RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8081)
+                    sleep 5
+                    RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:$PORT)
 
                     if [ "$RESPONSE" = "200" ]; then
                         echo "🎉 APP IS LIVE!"
-                        echo "🌐 http://13.233.131.239:8081"
+                        echo "🌐 http://13.233.131.239:$PORT"
                     else
                         echo "❌ Deployment failed"
-                        docker logs restaurant-app
+                        docker logs $CONTAINER_NAME
                         exit 1
                     fi
                 '''
@@ -104,13 +122,10 @@ pipeline {
 
     post {
         success {
-            echo "🎉 PIPELINE SUCCESSFUL 🚀"
+            echo "🎉 PRODUCTION PIPELINE SUCCESS 🚀"
         }
         failure {
             echo "❌ PIPELINE FAILED"
-        }
-        always {
-            sh 'docker system prune -f || true'
         }
     }
 }
