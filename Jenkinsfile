@@ -55,17 +55,14 @@ pipeline {
                 '''
             }
         }
-
-      stage('Security Scan (Trivy)') {
+stage('Security Scan (Trivy)') {
     steps {
         echo '🔐 Running Trivy Security Scan...'
         sh '''
-            docker pull aquasecurity/trivy:0.50.0
-
             docker run --rm \
             -v /var/run/docker.sock:/var/run/docker.sock \
             -v $HOME/.cache:/root/.cache \
-            aquasecurity/trivy:0.50.0 \
+            ghcr.io/aquasecurity/trivy:latest \
             image --severity HIGH,CRITICAL $REPOSITORY_NAME:$IMAGE_TAG
         '''
     }
