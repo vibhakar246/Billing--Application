@@ -23,9 +23,9 @@ pipeline {
         stage('Build Docker Image') {
             steps {
                 echo '🐳 Building Docker image...'
-                sh '''
-                    docker build -t $REPOSITORY_NAME:$IMAGE_TAG .
-                '''
+                timeout(time: 5, unit: 'MINUTES') {
+                    sh 'docker build -t $REPOSITORY_NAME:$IMAGE_TAG .'
+                }
             }
         }
 
@@ -103,7 +103,15 @@ pipeline {
                 echo '🔍 Verifying deployment...'
                 sh '''
                     sleep 5
-                    curl http://localhost:$PORT
+
+                    RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" http://172.17.0.1:$PORT)
+
+                    if [ "$RESPONSE" = "200" ]; then
+                        echo "✅ Deployment Verified"
+                    else
+                        echo "❌ Deployment Failed"
+                        exit 1
+                    fi
                 '''
             }
         }
