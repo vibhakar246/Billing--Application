@@ -56,6 +56,18 @@ pipeline {
             }
         }
 
+        stage('Security Scan (Trivy)') {
+            steps {
+                echo '🔐 Running Trivy Security Scan...'
+                sh '''
+                    docker run --rm \
+                    -v /var/run/docker.sock:/var/run/docker.sock \
+                    aquasec/trivy:latest \
+                    image --severity HIGH,CRITICAL $REPOSITORY_NAME:$IMAGE_TAG
+                '''
+            }
+        }
+
         stage('Login to ECR') {
             steps {
                 echo '🔐 Logging into ECR...'
