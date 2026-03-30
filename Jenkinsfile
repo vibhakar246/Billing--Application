@@ -59,10 +59,15 @@ pipeline {
         stage('Login to ECR') {
             steps {
                 echo '🔐 Logging into ECR...'
-                sh '''
-                    aws ecr get-login-password --region $AWS_REGION | \
-                    docker login --username AWS --password-stdin $ECR_REGISTRY
-                '''
+                withCredentials([[
+                    $class: 'AmazonWebServicesCredentialsBinding',
+                    credentialsId: 'aws-creds'
+                ]]) {
+                    sh '''
+                        aws ecr get-login-password --region $AWS_REGION | \
+                        docker login --username AWS --password-stdin $ECR_REGISTRY
+                    '''
+                }
             }
         }
 
@@ -95,7 +100,7 @@ pipeline {
 
         stage('Verify Deployment') {
             steps {
-                echo '🔍 Verifying...'
+                echo '🔍 Verifying deployment...'
                 sh '''
                     sleep 5
                     curl http://localhost:$PORT
