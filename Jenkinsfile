@@ -62,7 +62,8 @@ pipeline {
                 sh '''
                     docker run --rm \
                     -v /var/run/docker.sock:/var/run/docker.sock \
-                    aquasec/trivy:latest \
+                    -v $HOME/.cache:/root/.cache \
+                    aquasecurity/trivy:latest \
                     image --severity HIGH,CRITICAL $REPOSITORY_NAME:$IMAGE_TAG
                 '''
             }
