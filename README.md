@@ -17,7 +17,7 @@ A modern, responsive restaurant billing system with real-time cart management, G
 *The main restaurant billing interface showing menu items, cart system, and bill generation*
 
 ### 🔧 Jenkins CI/CD Pipeline
-![Jenkins Pipeline](./screenshots/jenkins-pipeline.png)
+![Jenkins Pipeline](./screenshots/Jenkins-Pipeline.png)
 *Automated CI/CD pipeline showing successful build, test, and deployment stages*
 
 ---
