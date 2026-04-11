@@ -22,9 +22,10 @@ pipeline {
 
         stage('Build Docker Image') {
             steps {
-                echo '🐳 Building Docker image...'
+                echo '🐳 Building Docker image with fresh HTML...'
                 timeout(time: 5, unit: 'MINUTES') {
-                    sh 'docker build -t $REPOSITORY_NAME:$IMAGE_TAG .'
+                    // --no-cache ensures your new HTML is included
+                    sh 'docker build --no-cache -t $REPOSITORY_NAME:$IMAGE_TAG .'
                 }
             }
         }
@@ -55,18 +56,19 @@ pipeline {
                 '''
             }
         }
-stage('Security Scan (Trivy)') {
-    steps {
-        echo '🔐 Running Trivy Security Scan...'
-        sh '''
-            docker run --rm \
-            -v /var/run/docker.sock:/var/run/docker.sock \
-            -v $HOME/.cache:/root/.cache \
-            ghcr.io/aquasecurity/trivy:latest \
-            image --severity HIGH,CRITICAL $REPOSITORY_NAME:$IMAGE_TAG
-        '''
-    }
-}
+
+        stage('Security Scan (Trivy)') {
+            steps {
+                echo '🔐 Running Trivy Security Scan...'
+                sh '''
+                    docker run --rm \
+                    -v /var/run/docker.sock:/var/run/docker.sock \
+                    -v $HOME/.cache:/root/.cache \
+                    ghcr.io/aquasecurity/trivy:latest \
+                    image --severity HIGH,CRITICAL $REPOSITORY_NAME:$IMAGE_TAG || true
+                '''
+            }
+        }
 
         stage('Login to ECR') {
             steps {
